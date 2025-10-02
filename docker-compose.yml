@@ -1,3 +1,4 @@
+
 version: "3.9"
 
 services:
@@ -9,16 +10,18 @@ services:
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_DB: auth_db
-      POSTGRES_USER: joaountura
-      POSTGRES_PASSWORD: joaountura@dev
+        POSTGRES_DB: auth_db
+        POSTGRES_USER: joaountura
+        POSTGRES_PASSWORD: joaountura@dev
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U joaountura -d auth_db"]
       interval: 5s
       retries: 20
       timeout: 5s
+      start_period: 10s
 
   redis_auth:
     image: redis:8.0.3
@@ -33,6 +36,7 @@ services:
       interval: 5s
       retries: 20
       timeout: 5s
+      start_period: 5s
 
   spring:
     image: joaountura/auth-project:latest
@@ -45,8 +49,10 @@ services:
       - ./logs:/logs
     environment:
       SPRING_REDIS_HOST: redis_auth
-      SPRING_REDIS_PORT: 6379        # usar porta interna do container
+      SPRING_REDIS_PORT: 6379
       SPRING_DATASOURCE_URL: jdbc:postgresql://auth_postgres:5432/auth_db
+      SPRING_DATASOURCE_USERNAME: joaountura
+      SPRING_DATASOURCE_PASSWORD: joaountura@dev
       LOGGING_FILE_NAME: /logs/app.log
       SERVER_ADDRESS: 0.0.0.0
     depends_on:
@@ -54,11 +60,13 @@ services:
         condition: service_healthy
       redis_auth:
         condition: service_healthy
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
-      interval: 5s
+      test: ["CMD-SHELL", "curl -f http://localhost:8080 || exit 1"]
+      interval: 10s
       retries: 20
       timeout: 5s
+      start_period: 30s
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.14.0
@@ -69,15 +77,26 @@ services:
       - discovery.type=single-node
       - xpack.security.enabled=false
       - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - cluster.name=docker-cluster
+      - bootstrap.memory_lock=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
     ports:
       - "9200:9200"
     volumes:
       - es_data:/usr/share/elasticsearch/data
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9200 || exit 1"]
-      interval: 10s
-      retries: 5
-      timeout: 5s
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      retries: 10
+      timeout: 10s
+      start_period: 60s
 
   kibana:
     image: docker.elastic.co/kibana/kibana:8.14.0
@@ -86,6 +105,8 @@ services:
       - auth_network
     environment:
       ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      SERVER_NAME: kibana
+      SERVER_HOST: "0.0.0.0"
     volumes:
       - kibana_data:/usr/share/kibana/data
     ports:
@@ -93,11 +114,13 @@ services:
     depends_on:
       elasticsearch:
         condition: service_healthy
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:5601 || exit 1"]
-      interval: 10s
-      retries: 5
-      timeout: 5s
+      test: ["CMD-SHELL", "curl -f http://localhost:5601/api/status || exit 1"]
+      interval: 30s
+      retries: 10
+      timeout: 10s
+      start_period: 60s
 
   logstash:
     image: docker.elastic.co/logstash/logstash:8.14.0
@@ -108,28 +131,36 @@ services:
       elasticsearch:
         condition: service_healthy
     volumes:
-      - ./logstash/logstash.conf:/usr/share/logstash/pipeline/logstash.conf
-      - ./logs:/usr/share/logstash/logs
+      - ./logstash/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+      - ./logs:/usr/share/logstash/logs:ro
     ports:
       - "5000:5000"
+    environment:
+      - LS_JAVA_OPTS=-Xmx256m -Xms256m
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 5000 || exit 1"]
-      interval: 10s
-      retries: 5
-      timeout: 5s
-    restart: always
+      test: ["CMD-SHELL", "curl -f http://localhost:9600/_node/stats || exit 1"]
+      interval: 30s
+      retries: 10
+      timeout: 10s
+      start_period: 60s
 
   kong:
     image: kong:3.6
     container_name: kong
     networks:
       - auth_network
-    restart: always
+    restart: unless-stopped
     environment:
       KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /etc/kong/kong.yaml
       KONG_PROXY_LISTEN: "0.0.0.0:8000, 0.0.0.0:80, 0.0.0.0:443 ssl"
       KONG_ADMIN_LISTEN: "0.0.0.0:8001"
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
     ports:
       - "8000:8000"
       - "80:80"
@@ -140,16 +171,24 @@ services:
     depends_on:
       spring:
         condition: service_healthy
-      kibana:
-        condition: service_healthy
-      logstash:
-        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "kong health"]
+      interval: 10s
+      retries: 10
+      timeout: 5s
+      start_period: 30s
 
 volumes:
   postgres_data:
+    driver: local
   es_data:
+    driver: local
   kibana_data:
+    driver: local
 
 networks:
   auth_network:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
