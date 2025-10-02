@@ -15,11 +15,14 @@ plugins:
         tos_accepted: true
         storage: redis
         storage_config:
+        redis:
           host: "redis_auth"
           port: 6380
         domains:
           - auth.meagende.site
  
+
+
 services:
   - name: spring-api
     url: http://spring:8080
