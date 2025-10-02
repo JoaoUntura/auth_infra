@@ -21,8 +21,6 @@ plugins:
         domains:
           - auth.meagende.site
  
-
-
 services:
   - name: spring-api
     url: http://spring:8080
@@ -32,3 +30,12 @@ services:
           - auth.meagende.site
         paths:
           - /api
+
+  - name: kibana
+    url: http://kibana:5601
+    routes:
+      - name: kibana-route
+        hosts:
+          - auth.meagende.site
+        paths:
+          - /kibana
