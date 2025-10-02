@@ -2,6 +2,8 @@ services:
   auth_postgres:
     image: postgres:15
     container_name: auth_postgres
+    networks:
+        - auth_network
     ports:
       - "5432:5432"
     environment:
@@ -15,6 +17,8 @@ services:
   redis_auth:
     image: redis:8.0.3
     container_name: redis_auth
+    networks:
+        - auth_network
     ports:
       - "6380:6379"
     restart: unless-stopped
@@ -22,6 +26,8 @@ services:
   spring:
     image: joaountura/auth-project:latest
     container_name: spring
+    networks:
+        - auth_network
     ports:
       - "8080:8080"
     volumes:
@@ -40,6 +46,8 @@ services:
   kong:
     image: kong:3.6
     container_name: kong
+    networks:
+        - auth_network
     restart: always
     environment:
       KONG_DATABASE: "off"   
@@ -55,10 +63,16 @@ services:
 
     volumes:
       - ./kong.yaml:/etc/kong/kong.yaml:ro
+    depends_on:
+      - spring
+      - kibana
+      - logstash
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.14.0
     container_name: elasticsearch
+    networks:
+        - auth_network
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
@@ -70,6 +84,8 @@ services:
 
   kibana:
       image: docker.elastic.co/kibana/kibana:8.14.0
+      networks:
+        - auth_network
       container_name: kibana
       environment:
         ELASTICSEARCH_HOSTS: http://elasticsearch:9200
@@ -82,6 +98,8 @@ services:
 
   logstash:
       image: docker.elastic.co/logstash/logstash:8.14.0
+      networks:
+        - auth_network
       container_name: logstash
       volumes:
         - ./logstash/logstash.conf:/usr/share/logstash/pipeline/logstash.conf
@@ -96,6 +114,10 @@ volumes:
   postgres_data:
   es_data:
   kibana_data:
+
+networks:
+  auth_network:
+    driver: bridge
 
 
 
