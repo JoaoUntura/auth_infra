@@ -14,8 +14,10 @@ plugins:
         account_email: "joaountura@gmail.com"
         tos_accepted: true
         storage: redis
-        storage_redis_host: redis_auth     
-        storage_redis_port: 6380
+        storage_config:
+        redis:
+          host: "redis_auth"
+          port: 6380
         domains:
           - auth.meagende.site
  
